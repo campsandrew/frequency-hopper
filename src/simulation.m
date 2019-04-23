@@ -4,7 +4,7 @@ loFreq = 2.4e9;                                         % LO Center Frequency
 sampleRate = 1e6;
 samplesPerSymbol = 2;
 filterSymbolSpan = 4;
-modOrder = 1;
+modOrder = 2;
 frameSize = 2^10;
 numFrames = 100;
 randData = randi([0 1], [numFrames, frameSize]);        % Binary data
@@ -63,24 +63,25 @@ cdPost.Position(1) = cdPre.Position(1) + cdPre.Position(3) + 10;
 for frame = 1:numFrames
     dataFrame = randData(frame, :).';                       % Data
     txModData = dbpskMod(dataFrame);                        % Modulate Data
-    txFiltData = txFlt(txModData);                          % TX Filter Data
+    txFiltData = txFlt(txModData);                          % TX Filter Data    
     
     %TODO: Check for receive message based on
     %      receiver message bit error
-    
+%     
     % Add imparments to data
     txData = varDelay(txFiltData, frame * timingOffset);    % Timing Offset Data
     txData = pfOffset(txData);                              % Phase Frequency Data
     txData = chan(txData);                                  % Noisy Data
-    disp("Center Frequency: " + loFreq);
+%     disp("Center Frequency: " + loFreq);
     
     % Create random channel usage
     %TODO: Add channel usage
     
     % Matched Filter and Corrections
     rxFiltData = rxFlt(txData);                    % Receiver Filter
-    rxData = symbolSync(rxFiltData);               % Timing Correction
-    tSize = size(rxData);                          % Correct frame sizing after timing
+    rxData = coarseSync(rxFiltData);                   % Coarse Frequency Correction
+    rxData = symbolSync(rxData);               % Timing Correction
+    tSize = size(rxData);                          % Correct frame sizing after timing correction
     if tSize(1) < frameSize
         stuff = frameSize - tSize(1);
         rxData = [rxData; zeros(stuff, 1)];
@@ -89,10 +90,9 @@ for frame = 1:numFrames
        remove = tSize(1) - frameSize;
        rxData = rxData(1:end - remove);
     end
-    rxData = coarseSync(rxData);                   % Coarse Frequency Correction
     rxData = fineSync(rxData);                     % Fine Frequency Correction 
     %TODO: Frame syncronization
-    rxDemodData = dbpskDemod(rxFiltData);              % Demodulate Data
+    rxDemodData = dbpskDemod(rxData);          % Demodulate Data
     
     
     %TODO: Calculate bit error
