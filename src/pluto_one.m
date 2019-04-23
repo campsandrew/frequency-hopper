@@ -6,31 +6,21 @@ samplesPerSymbol = 2;
 filterSymbolSpan = 4;
 modOrder = 1;
 frameSize = 2^10;
-numFrames = 100;
-randData = randi([0 1], [numFrames, frameSize]);        % Binary data
-
-% Impairments Variables
-snr = 20;                                               % Noise (SNR)
-timingOffset = samplesPerSymbol * 0.01;                 % Timing Offset
-freqOffset = sampleRate * 0.1;                          % Frequency Offset
-phaseOffset = 0;                                        % Phase Offset
 
 % Object Variables
-varDelay = dsp.VariableFractionalDelay();
 dbpskMod = comm.DBPSKModulator();                       % Modulator
 dbpskDemod = comm.DBPSKDemodulator();                   % Demodulator
+rx = sdrrx('Pluto',...                                  % Pluto Receiver
+    'CenterFrequency', loFreq, ...
+    'SamplesPerFrame', frameSize, ...    
+    'OutputDataType', 'double', ...
+    'BasebandSampleRate', sampleRate);
+tx = sdrtx('Pluto', ...                                 % Pluto Transmitter
+    'CenterFrequency', loFreq, ...
+    'BasebandSampleRate', sampleRate);
 txFlt = comm.RaisedCosineTransmitFilter(...             % TX Filter
     'OutputSamplesPerSymbol', samplesPerSymbol,...
     'FilterSpanInSymbols', filterSymbolSpan);
-rxFlt = comm.RaisedCosineReceiveFilter(...              % RX Filter
-    'InputSamplesPerSymbol', samplesPerSymbol,...
-    'FilterSpanInSymbols', filterSymbolSpan,...
-    'DecimationFactor', 1);
-chan = comm.AWGNChannel('NoiseMethod', ...              % AWGN Channel
-    'Signal to noise ratio (SNR)', ...
-    'SNR', snr, ...
-    'SignalPower', 1, ...
-    'RandomStream', 'mt19937ar with seed');
 symbolSync = comm.SymbolSynchronizer(...
     'SamplesPerSymbol', samplesPerSymbol, ...
     'NormalizedLoopBandwidth', 0.01, ...
@@ -43,9 +33,6 @@ fineSync = comm.CarrierSynchronizer('DampingFactor', 0.7, ...
     'NormalizedLoopBandwidth', 0.005, ...
     'SamplesPerSymbol', samplesPerSymbol, ...
     'Modulation','BPSK');
-pfOffset = comm.PhaseFrequencyOffset('FrequencyOffset', freqOffset, ...
-    'PhaseOffset', phaseOffset, ...
-    'SampleRate', sampleRate);
 
 % Visual Objects
 % sa = dsp.SpectrumAnalyzer('SampleRate', sampleRate, 'ShowLegend', true);
@@ -59,26 +46,14 @@ cdRef.Position(1) = 50;
 cdPre.Position(1) = cdRef.Position(1) + cdRef.Position(3) + 10;
 cdPost.Position(1) = cdPre.Position(1) + cdPre.Position(3) + 10;
 
-%% Start Simulation
-for frame = 1:numFrames
-    dataFrame = randData(frame, :).';                       % Data
-    txModData = dbpskMod(dataFrame);                        % Modulate Data
-    txFiltData = txFlt(txModData);                          % TX Filter Data
+%% Transmit Repeat Useful Data
+% tx.transmitRepeat();
+
+%% Receive Data
+while true
+    rxData = rxFlt(rx());                          % Receive data
     
-    %TODO: Check for receive message based on
-    %      receiver message bit error
-    
-    % Add imparments to data
-    txData = varDelay(txFiltData, frame * timingOffset);    % Timing Offset Data
-    txData = pfOffset(txData);                              % Phase Frequency Data
-    txData = chan(txData);                                  % Noisy Data
-    disp("Center Frequency: " + loFreq);
-    
-    % Create random channel usage
-    %TODO: Add channel usage
-    
-    % Matched Filter and Corrections
-    rxFiltData = rxFlt(txData);                    % Receiver Filter
+    % Apply corrections
     rxData = symbolSync(rxFiltData);               % Timing Correction
     tSize = size(rxData);                          % Correct frame sizing after timing
     if tSize(1) < frameSize
@@ -94,19 +69,11 @@ for frame = 1:numFrames
     %TODO: Frame syncronization
     rxDemodData = dbpskDemod(rxFiltData);              % Demodulate Data
     
-    
-    %TODO: Calculate bit error
-    %      Check if bit error is too high
-    %      Create random frequency to change to
-    %      Transmit frequency change back    
-%     e = biterr(dataFrame, rxDemodData);
-%     disp(e);
-    
     % Frame by frame graphs
     if visuals
-        cdRef(txFiltData);              % After TX Filter
-        cdPre(txData);                  % Sent Data
+%         cdRef(txFiltData);              % After TX Filter
+%         cdPre(txData);                  % Sent Data
         cdPost(rxData);                 % Data After Corrections
-        pause(0.1);
-    end
+%         pause(0.1);
+    end 
 end
