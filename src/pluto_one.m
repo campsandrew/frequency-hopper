@@ -51,7 +51,7 @@ cdPost.Position(1) = cdPre.Position(1) + cdPre.Position(3) + 10;
 
 %% Receive Data
 while true
-    rxData = rxFlt(rx());                          % Receive data
+    rxFiltData = rxFlt(rx());                      % Receive data
     
     % Apply corrections
     rxData = symbolSync(rxFiltData);               % Timing Correction
