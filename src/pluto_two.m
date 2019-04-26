@@ -5,7 +5,7 @@ Interpolation = 2;         % Interpolation factor
 Decimation = 1;            % Decimation factor
 Tsym = 1 / Rsym;           % Symbol time in sec
 Fs = Rsym * Interpolation; % Sample rate
-channels = [2.4e9, 2.401e9, 2.402e9, 2.403e9, 2.404e9, 2.405e9, 2.406e9, 2.407e9, 2.6e9];
+channels = [2.4e9, 2.401e9, 2.402e9, 2.403e9, 2.404e9, 2.405e9, 2.406e9, 2.407e9, 915e6];
 
 %% Tx parameters
 RolloffFactor = 0.5;
@@ -57,22 +57,26 @@ for i = 1 : NumberOfMessage
 end
 
 %% Message Info 2
-Message2 = 'Freqs: 1';
-MessageLength2 = length(Message2);
-PayloadLength2 =  MessageLength2 * 7;
+Message2 = 'Hello World2';
+MessageLength2 = length(Message2) + 5;
+NumberOfMessage2 = 100;
+PayloadLength2 = NumberOfMessage2 * MessageLength2 * 7;
 FrameSize2 = (HeaderLength + PayloadLength2) / log2(ModulationOrder);
 
 %% Message generation 2
-msg2 = zeros(MessageLength2,1);
+msgSet2 = zeros(NumberOfMessage2 * MessageLength2, 1); 
+for msgCnt2 = 0 : NumberOfMessage2 - 1
+    msgSet2(msgCnt2 * MessageLength2 + (1 : MessageLength2)) = ...
+        sprintf('%s %03d\n', Message2, msgCnt2);
+end
 integerToBit2 = comm.IntegerToBit(7, 'OutputDataType', 'double');
-msg2(1:end) = sprintf('%s', Message2);
-MessageBits2 = integerToBit2(msg2);
+MessageBits2 = integerToBit2(msgSet2);
 
 %% Pluto TX
 tx = sdrtx(..., 
     'Pluto', ...
     'RadioID', 'usb:0', ...
-    'CenterFrequency', 915e6, ...
+    'CenterFrequency', 910e6, ...
     'BasebandSampleRate', Fs, ...
     'SamplesPerFrame', Interpolation * FrameSize2, ...
     'Gain', 0);
@@ -82,7 +86,7 @@ hTx = QPSKTransmitter(...
     'RaisedCosineFilterSpan',       RaisedCosineFilterSpan, ...
     'MessageBits',                  MessageBits2, ...
     'MessageLength',                MessageLength2, ...
-    'NumberOfMessage',              1, ...
+    'NumberOfMessage',              NumberOfMessage2, ...
     'ScramblerBase',                ScramblerBase, ...
     'ScramblerPolynomial',          ScramblerPolynomial, ...
     'ScramblerInitialConditions',   ScramblerInitialConditions);
@@ -126,17 +130,22 @@ hRx  = QPSKReceiver(...
     'PrintOption',true);
 
 %% TX MESSAGE
-%tx.transmitRepeat(step(hTx));
+tx.transmitRepeat(step(hTx));
 
 %% RX MESSAGE
 currentTime = 0;
 StopTime = 1000;
 BER = [];
 rcvdSignal = complex(zeros(Interpolation * FrameSize, 1));
+
+sa = dsp.SpectrumAnalyzer('SampleRate', rx.BasebandSampleRate,...
+                          'FrequencyOffset', rx.CenterFrequency);
+
 while currentTime <  StopTime
     rcvdSignal = rx();
+    sa(rcvdSignal);
     [~, ~, ~, BER, message] = hRx(rcvdSignal);
-    message
+%
 %     fprintf('TEST: %s', char(message));
 %     disp("TEST: " + sprintf('%s\n', char(message)));
     currentTime = currentTime + (rx.SamplesPerFrame / rx.BasebandSampleRate);
