@@ -1,72 +1,102 @@
-% Parameters---------------------------------------------------------------------------------------
-% Symbol rate in Hertz
-Rsym = 0.2e6;
-% QPSK alphabet size
-ModulationOrder = 4; 
-% Interpolation factor
-Interpolation = 2;
-% Decimation factor
-Decimation = 1;
-% Symbol time in sec
-Tsym = 1/Rsym;  
-% Sample rate
-Fs = Rsym * Interpolation; 
-channels = [2.4e9, 2.401e9, 2.402e9,2.403e9,2.404e9,2.405e9,2.406e9,2.407e9,2.408e9];
-%Reciever
-%---------------------------------------------------------------------------------------------------
-% Frame Specifications
-% Bipolar Barker Code
-BarkerCode = [+1 +1 +1 +1 +1 -1 -1 +1 +1 -1 +1 -1 +1];    
-BarkerLength = length(BarkerCode);
-HeaderLength = BarkerLength * 2;                   
-Message = 'ECE 531 Project Message';
-MessageLength = length(Message) + 5;               
-NumberOfMessage = 100;  
-% 7 bits per characters
-PayloadLength = NumberOfMessage * MessageLength * 7;
-% Frame size in symbols
-FrameSize = (HeaderLength + PayloadLength)/ log2(ModulationOrder);
-FrameTime = Tsym*FrameSize;
-%Rx parameters
-RolloffFactor = 0.5;                     
+%% General simulation parameters
+Rsym = 0.2e6;              % Symbol rate in Hertz
+ModulationOrder = 4;       % QPSK alphabet size
+Interpolation = 2;         % Interpolation factor
+Decimation = 1;            % Decimation factor
+Tsym = 1 / Rsym;           % Symbol time in sec
+Fs = Rsym * Interpolation; % Sample rate
+channels = [2.4e9, 2.401e9, 2.402e9, 2.403e9, 2.404e9, 2.405e9, 2.406e9, 2.407e9, 2.6e9];
+
+%% Tx parameters
+RolloffFactor = 0.5;
 ScramblerBase = 2;
 ScramblerPolynomial = [1 1 1 0 1];
 ScramblerInitialConditions = [0 0 0 0];
-RaisedCosineFilterSpan = 10;                  
-DesiredPower = 2;            
-AveragingLength = 50;           
-MaxPowerGain = 60;           
-MaximumFrequencyOffset = 6e3;
+RaisedCosineFilterSpan = 10;
+
+%% Rx parameters
+DesiredPower                  = 2;            % AGC desired output power (in watts)
+AveragingLength               = 50;           % AGC averaging length
+MaxPowerGain                  = 60;           % AGC maximum output power gain
+MaximumFrequencyOffset        = 6e3;
 K = 1;
 A = 1/sqrt(2);
-PhaseRecoveryLoopBandwidth = 0.01;         
-PhaseRecoveryDampingFactor = 1;            
-TimingRecoveryLoopBandwidth = 0.01;         
-TimingRecoveryDampingFactor = 1;            
-TimingErrorDetectorGain = 2.7*2*K*A^2+2.7*2*K*A^2;
-PreambleDetectorThreshold = 0.8;
-% Message generation and BER calculation parameters
-msgSet = zeros(100 * MessageLength, 1);
-for msgCnt = 0 : 99
+PhaseRecoveryLoopBandwidth    = 0.01;         % Normalized loop bandwidth for fine frequency compensation
+PhaseRecoveryDampingFactor    = 1;            % Damping Factor for fine frequency compensation
+TimingRecoveryLoopBandwidth   = 0.01;         % Normalized loop bandwidth for timing recovery
+TimingRecoveryDampingFactor   = 1;            % Damping Factor for timing recovery
+TimingErrorDetectorGain       = 2.7*2*K*A^2+2.7*2*K*A^2;
+PreambleDetectorThreshold     = 0.8;
+
+%% Frame Specifications
+BarkerCode = [+1 +1 +1 +1 +1 -1 -1 +1 +1 -1 +1 -1 +1];
+BarkerLength = length(BarkerCode);
+HeaderLength = BarkerLength * 2;
+
+%% Message Info 1
+Message = 'Hello World';
+MessageLength = length(Message) + 5;
+NumberOfMessage = 100;
+PayloadLength = NumberOfMessage * MessageLength * 7;
+FrameSize = (HeaderLength + PayloadLength) / log2(ModulationOrder);
+
+%% Message generation 1
+msgSet = zeros(NumberOfMessage * MessageLength, 1); 
+for msgCnt = 0 : NumberOfMessage - 1
     msgSet(msgCnt * MessageLength + (1 : MessageLength)) = ...
         sprintf('%s %03d\n', Message, msgCnt);
 end
 integerToBit = comm.IntegerToBit(7, 'OutputDataType', 'double');
 MessageBits = integerToBit(msgSet);
+
 % For BER calculation masks
 BerMask = zeros(NumberOfMessage * length(Message) * 7, 1);
 for i = 1 : NumberOfMessage
     BerMask( (i-1) * length(Message) * 7 + ( 1: length(Message) * 7) ) = ...
         (i-1) * MessageLength * 7 + (1: length(Message) * 7);
 end
-% Pluto receiver parameters
-PlutoCenterFrequency = channels(1);
-PlutoGain = 30;
-PlutoFrontEndSampleRate = Fs;
-PlutoFrameLength = Interpolation * FrameSize;
-% Experiment parameters
-PlutoFrameTime = PlutoFrameLength / PlutoFrontEndSampleRate;
-StopTime = 1000;
+
+%% Message Info 2
+Message2 = 'Freqs: 1';
+MessageLength2 = length(Message2);
+PayloadLength2 =  MessageLength2 * 7;
+FrameSize2 = (HeaderLength + PayloadLength2) / log2(ModulationOrder);
+
+%% Message generation 2
+msg2 = zeros(MessageLength2,1);
+integerToBit2 = comm.IntegerToBit(7, 'OutputDataType', 'double');
+msg2(1:end) = sprintf('%s', Message2);
+MessageBits2 = integerToBit2(msg2);
+
+%% Pluto TX
+tx = sdrtx(..., 
+    'Pluto', ...
+    'RadioID', 'usb:0', ...
+    'CenterFrequency', 915e6, ...
+    'BasebandSampleRate', Fs, ...
+    'SamplesPerFrame', Interpolation * FrameSize2, ...
+    'Gain', 0);
+hTx = QPSKTransmitter(...
+    'UpsamplingFactor',             Interpolation, ...
+    'RolloffFactor',                RolloffFactor, ...
+    'RaisedCosineFilterSpan',       RaisedCosineFilterSpan, ...
+    'MessageBits',                  MessageBits2, ...
+    'MessageLength',                MessageLength2, ...
+    'NumberOfMessage',              1, ...
+    'ScramblerBase',                ScramblerBase, ...
+    'ScramblerPolynomial',          ScramblerPolynomial, ...
+    'ScramblerInitialConditions',   ScramblerInitialConditions);
+
+%% Pluto RX
+rx = sdrrx(..., 
+    'Pluto', ...
+    'CenterFrequency', channels(9), ...
+    'BasebandSampleRate', Fs, ...
+    'SamplesPerFrame', Interpolation*FrameSize, ...
+    'GainSource', 'Manual', ...
+    'Gain', 30, ...
+    'OutputDataType', 'double', ...
+    'RadioID', 'usb:0');
 hRx  = QPSKReceiver(...
     'ModulationOrder', ModulationOrder, ...
     'SampleRate', Fs, ...
@@ -92,74 +122,29 @@ hRx  = QPSKReceiver(...
     'DescramblerBase', ScramblerBase, ...
     'DescramblerPolynomial', ScramblerPolynomial, ...
     'DescramblerInitialConditions', ScramblerInitialConditions,...
-    'BerMask', BerMask,...
+    'BerMask', BerMask, ...
     'PrintOption',true);
-%Transmitter
-%-------------------------------------------------------------------------------------------------
-hTx = QPSKTransmitter(...
-    'UpsamplingFactor',             Interpolation, ...
-    'RolloffFactor',                RolloffFactor, ...
-    'RaisedCosineFilterSpan',       RaisedCosineFilterSpan, ...
-    'MessageBits',                  MessageBits, ...
-    'MessageLength',                MessageLength, ...
-    'NumberOfMessage',              NumberOfMessage, ...
-    'ScramblerBase',                ScramblerBase, ...
-    'ScramblerPolynomial',          ScramblerPolynomial, ...
-    'ScramblerInitialConditions',   ScramblerInitialConditions);
-% Frame Specifications
-BarkerCode = [+1 +1 +1 +1 +1 -1 -1 +1 +1 -1 +1 -1 +1];
-BarkerLength = length(BarkerCode);
-HeaderLength = BarkerLength * 2;
-Message = 'Freq: 1';
-MessageLength = length(Message) + 5;
-NumberOfMessage = 100;
-PayloadLength = NumberOfMessage * MessageLength * 7;
-FrameSize = (HeaderLength + PayloadLength) / log2(ModulationOrder);
-% Tx parameters
-RolloffFactor = 0.5;
-ScramblerBase = 2;
-ScramblerPolynomial = [1 1 1 0 1];
-ScramblerInitialConditions = [0 0 0 0];
-RaisedCosineFilterSpan = 10;
-% Pluto transmit and recieve objects
-txp = sdrtx('Pluto');
-txp.CenterFrequency       = channels(1);
-txp.BasebandSampleRate    = PlutoFrontEndSampleRate;
-txp.SamplesPerFrame       = PlutoFrameLength;
-txp.GainSource            = 'Manual';
-txp.Gain                  = 0;
-txp.OutputDataType        = 'double';
-rxp = sdrrx('Pluto');
-rxp.CenterFrequency       = channels(1);
-rxp.BasebandSampleRate    = PlutoFrontEndSampleRate;
-rxp.SamplesPerFrame       = PlutoFrameLength;
-rxp.GainSource            = 'Manual';
-rxp.Gain                  = 30;
-rxp.OutputDataType        = 'double';
-% Initialize variables
+
+%% TX MESSAGE
+%tx.transmitRepeat(step(hTx));
+
+%% RX MESSAGE
 currentTime = 0;
+StopTime = 1000;
 BER = [];
-rcvdSignal = complex(zeros(PlutoFrameLength,1));
-curr_freq = 1;
-BER_T = 1;
-while currentTime < StopTime
-    %Receive signal from the radio
-    rcvdSignal = rxp();
-    %Decode the received message
-    [~, ~, ~, BER] = hRx(rcvdSignal);
-    BER_C = BER(1);
-    %Decide on changing frequency
-    if BER_C > BER_T
-        curr_freq = randi([1,11]);
-        txp.CenterFrequency = channels(curr_freq);
-        rxp.CenterFrequency = channels(curr_freq);
-    end
-    %Send frequency over QPSK
-    tx(hTx(currFreq));
-    %Update simulation time
-    currentTime=currentTime+(radio.SamplesPerFrame / radio.BasebandSampleRate);
+rcvdSignal = complex(zeros(Interpolation * FrameSize, 1));
+while currentTime <  StopTime
+    rcvdSignal = rx();
+    [~, ~, ~, BER, message] = hRx(rcvdSignal);
+    message
+%     fprintf('TEST: %s', char(message));
+%     disp("TEST: " + sprintf('%s\n', char(message)));
+    currentTime = currentTime + (rx.SamplesPerFrame / rx.BasebandSampleRate);
 end
-release(htx);
+    
+release(hRx);
+release(hTx);
 release(rx);
-release(txp);
-release(rxp);
+release(tx);
+
+

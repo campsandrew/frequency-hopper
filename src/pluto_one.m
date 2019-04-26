@@ -125,6 +125,7 @@ message = zeros(1600, 1);
 while currentTime <  StopTime
     rcvdSignal = rx();
     [~, ~, ~, ~, message] = hRx(rcvdSignal);
+    message
 %     fprintf('TEST: %s', char(message));
 %     disp("TEST: " + sprintf('%s\n', char(message)));
     currentTime = currentTime + (rx.SamplesPerFrame / rx.BasebandSampleRate);
