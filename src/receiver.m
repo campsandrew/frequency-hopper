@@ -5,6 +5,7 @@ Interpolation = 2;        % Interpolation factor
 Decimation = 1;           % Decimation factor
 Tsym = 1/Rsym;  % Symbol time in sec
 Fs   = Rsym * Interpolation; % Sample rate
+
 %% Frame Specifications
 % [BarkerCode*2 | 'Hello world 000\n' | 'Hello world 001\n' ... | 'Hello world 099\n'];
 BarkerCode      = [+1 +1 +1 +1 +1 -1 -1 +1 +1 -1 +1 -1 +1];     % Bipolar Barker Code
@@ -12,7 +13,7 @@ BarkerLength    = length(BarkerCode);
 HeaderLength    = BarkerLength * 2;                   % Duplicate 2 Barker codes to be as a header
 Message         = 'Hello world';
 MessageLength   = length(Message) + 5;                % 'Hello world 000\n'...
-NumberOfMessage = 100;                                          % Number of messages in a frame
+NumberOfMessage = 1;                                  % Number of messages in a frame
 PayloadLength   = NumberOfMessage * MessageLength * 7; % 7 bits per characters
 FrameSize       = (HeaderLength + PayloadLength)/ log2(ModulationOrder);                                    % Frame size in symbols
 FrameTime       = Tsym*FrameSize;
@@ -56,6 +57,7 @@ for i = 1 : NumberOfMessage
     BerMask( (i-1) * length(Message) * 7 + ( 1: length(Message) * 7) ) = ...
         (i-1) * MessageLength * 7 + (1: length(Message) * 7);
 end
+
 % Pluto receiver parameters
 PlutoCenterFrequency      = 915e6;
 PlutoGain                 = 30;
@@ -65,7 +67,6 @@ PlutoFrameLength          = Interpolation * FrameSize;
 % Experiment parameters
 PlutoFrameTime = PlutoFrameLength / PlutoFrontEndSampleRate;
 StopTime = 10;
-
 
 rx  = QPSKReceiver(...
     'ModulationOrder', ModulationOrder, ...
@@ -103,26 +104,17 @@ radio.SamplesPerFrame       = PlutoFrameLength;
 radio.GainSource            = 'Manual';
 radio.Gain                  = PlutoGain;
 radio.OutputDataType        = 'double';
+radio.RadioID = 'usb:1';
 
 
 % Initialize variables
 currentTime = 0;
 BER = [];
 rcvdSignal = complex(zeros(PlutoFrameLength,1));
-
-scope = dsp.SpectrumAnalyzer('SampleRate',PlutoFrontEndSampleRate,...
-    'CenterFrequency',PlutoCenterFrequency);
-
-
 while currentTime <  StopTime
-    % Receive signal from the radio
     rcvdSignal = radio();
-    %scope(rcvdSignal);
-    % Decode the received message
     [~, ~, ~, BER] = rx(rcvdSignal);
-    BER(1)
-    % Update simulation time
-    currentTime=currentTime+(radio.SamplesPerFrame / radio.BasebandSampleRate);
+    currentTime= currentTime + (radio.SamplesPerFrame / radio.BasebandSampleRate);
 end
 
 release(rx);
