@@ -36,7 +36,7 @@ HeaderLength = BarkerLength * 2;
 %% Message Info
 Message = 'Hello World';
 MessageLength = length(Message) + 5;
-NumberOfMessage = 50;
+NumberOfMessage = 100;
 PayloadLength = NumberOfMessage * MessageLength * 7;
 FrameSize = (HeaderLength + PayloadLength) / log2(ModulationOrder);
 
@@ -59,7 +59,7 @@ end
 tx = sdrtx(..., 
     'Pluto', ...
     'RadioID', 'usb:0', ...
-    'CenterFrequency', channels(9), ...
+    'CenterFrequency', 915e6, ...
     'BasebandSampleRate', Fs, ...
     'SamplesPerFrame', Interpolation * FrameSize, ...
     'Gain', 0);
@@ -77,7 +77,7 @@ hTx = QPSKTransmitter(...
 %% Pluto RX
 rx = sdrrx(..., 
     'Pluto', ...
-    'CenterFrequency', 915e6, ...
+    'CenterFrequency', 910e6, ...
     'BasebandSampleRate', Fs, ...
     'SamplesPerFrame', Interpolation*FrameSize, ...
     'GainSource', 'Manual', ...
@@ -116,16 +116,16 @@ hRx  = QPSKReceiver(...
 tx.transmitRepeat(step(hTx));
 
 %% RX MESSAGE
-% currentTime = 0;
-% StopTime = 1000;
-% rcvdSignal = complex(zeros(Interpolation * FrameSize, 1));
-% while currentTime <  StopTime
-%     rcvdSignal = rx();
-%     [~, ~, ~, ~, message] = hRx(rcvdSignal);
-%     disp(message);
-% 
-%     currentTime = currentTime + (rx.SamplesPerFrame / rx.BasebandSampleRate);
-% end
+currentTime = 0;
+StopTime = 1000;
+rcvdSignal = complex(zeros(Interpolation * FrameSize, 1));
+while currentTime <  StopTime
+    rcvdSignal = rx();
+    [~, ~, ~, ~, message] = hRx(rcvdSignal);
+    message
+
+    currentTime = currentTime + (rx.SamplesPerFrame / rx.BasebandSampleRate);
+end
 
 % FrameTime = Interpolation * FrameSize / Fs;
 % StopTime  = 1000;
