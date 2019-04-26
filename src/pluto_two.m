@@ -1,84 +1,150 @@
-%% Variable Initializations
-visuals = true;                                         % Debug flag
-loFreq = 2.4e9;                                         % LO Center Frequency
-sampleRate = 1e6;
-samplesPerSymbol = 2;
-filterSymbolSpan = 4;
-modOrder = 1;
-frameSize = 2^10;
+%% General simulation parameters
+Rsym = 0.2e6;              % Symbol rate in Hertz
+ModulationOrder = 4;       % QPSK alphabet size
+Interpolation = 2;         % Interpolation factor
+Decimation = 1;            % Decimation factor
+Tsym = 1 / Rsym;           % Symbol time in sec
+Fs = Rsym * Interpolation; % Sample rate
+channels = [2.4e9, 2.401e9, 2.402e9, 2.403e9, 2.404e9, 2.405e9, 2.406e9, 2.407e9, 2.6e9];
 
-% Object Variables
-dbpskMod = comm.DBPSKModulator();                       % Modulator
-dbpskDemod = comm.DBPSKDemodulator();                   % Demodulator
-tx = sdrtx('Pluto', ...                                 % Pluto Transmitter
-    'CenterFrequency', loFreq, ...
-    'BasebandSampleRate', sampleRate);
-rx = sdrrx('Pluto',...                                  % Pluto Receiver
-    'CenterFrequency', loFreq, ...
-    'SamplesPerFrame', frameSize, ...    
-    'OutputDataType', 'double', ...
-    'BasebandSampleRate', sampleRate);
-rxFlt = comm.RaisedCosineReceiveFilter(...              % RX Filter
-    'InputSamplesPerSymbol', samplesPerSymbol,...
-    'FilterSpanInSymbols', filterSymbolSpan,...
-    'DecimationFactor', 1);
-symbolSync = comm.SymbolSynchronizer(...
-    'SamplesPerSymbol', samplesPerSymbol, ...
-    'NormalizedLoopBandwidth', 0.01, ...
-    'DampingFactor', 1.0, ...
-    'TimingErrorDetector','Zero-Crossing (decision-directed)');
-coarseSync = comm.CoarseFrequencyCompensator('Modulation','BPSK', ...
-    'FrequencyResolution', 1, ...
-    'SampleRate', sampleRate * samplesPerSymbol);
-fineSync = comm.CarrierSynchronizer('DampingFactor', 0.7, ...
-    'NormalizedLoopBandwidth', 0.005, ...
-    'SamplesPerSymbol', samplesPerSymbol, ...
-    'Modulation','BPSK');
+%% Tx parameters
+RolloffFactor = 0.5;
+ScramblerBase = 2;
+ScramblerPolynomial = [1 1 1 0 1];
+ScramblerInitialConditions = [0 0 0 0];
+RaisedCosineFilterSpan = 10;
 
-% Visual Objects
-% sa = dsp.SpectrumAnalyzer('SampleRate', sampleRate, 'ShowLegend', true);
-cdRef = comm.ConstellationDiagram('ReferenceConstellation', [-1 1],...
-    'Name','Reference');
-cdPre = comm.ConstellationDiagram('ReferenceConstellation', [-1 1],...
-    'Name','Baseband with Timing Offset');
-cdPost = comm.ConstellationDiagram('ReferenceConstellation', [-1 1],...
-    'Name','Corrected Timing Offset');
-cdRef.Position(1) = 50;
-cdPre.Position(1) = cdRef.Position(1) + cdRef.Position(3) + 10;
-cdPost.Position(1) = cdPre.Position(1) + cdPre.Position(3) + 10;
+%% Rx parameters
+DesiredPower                  = 2;            % AGC desired output power (in watts)
+AveragingLength               = 50;           % AGC averaging length
+MaxPowerGain                  = 60;           % AGC maximum output power gain
+MaximumFrequencyOffset        = 6e3;
+K = 1;
+A = 1/sqrt(2);
+PhaseRecoveryLoopBandwidth    = 0.01;         % Normalized loop bandwidth for fine frequency compensation
+PhaseRecoveryDampingFactor    = 1;            % Damping Factor for fine frequency compensation
+TimingRecoveryLoopBandwidth   = 0.01;         % Normalized loop bandwidth for timing recovery
+TimingRecoveryDampingFactor   = 1;            % Damping Factor for timing recovery
+TimingErrorDetectorGain       = 2.7*2*K*A^2+2.7*2*K*A^2;
+PreambleDetectorThreshold     = 0.8;
 
-%% Transmit Repeat Some Channel Interference
-% tx.transmitRepeat();
+%% Frame Specifications
+BarkerCode = [+1 +1 +1 +1 +1 -1 -1 +1 +1 -1 +1 -1 +1];
+BarkerLength = length(BarkerCode);
+HeaderLength = BarkerLength * 2;
 
-%% Receive Data
-while true
-    rxData = rxFlt(rx());                          % Receive data
-    
-    % Apply corrections
-    rxData = symbolSync(rxFiltData);               % Timing Correction
-    tSize = size(rxData);                          % Correct frame sizing after timing
-    if tSize(1) < frameSize
-        stuff = frameSize - tSize(1);
-        rxData = [rxData; zeros(stuff, 1)];
-    end
-    if tSize(1) > frameSize
-       remove = tSize(1) - frameSize;
-       rxData = rxData(1:end - remove);
-    end
-    rxData = coarseSync(rxData);                   % Coarse Frequency Correction
-    rxData = fineSync(rxData);                     % Fine Frequency Correction 
-    %TODO: Frame syncronization
-    rxDemodData = dbpskDemod(rxFiltData);          % Demodulate Data
-    
-    %TODO: Calculate bit error  
-%     e = biterr(dataFrame, rxDemodData);
-%     disp(e);
-    
-    % Frame by frame graphs
-    if visuals
-%         cdRef(txFiltData);              % After TX Filter
-%         cdPre(txData);                  % Sent Data
-        cdPost(rxData);                 % Data After Corrections
-%         pause(0.1);
-    end 
+%% Message Info 1
+Message = 'Hello World';
+MessageLength = length(Message) + 5;
+NumberOfMessage = 100;
+PayloadLength = NumberOfMessage * MessageLength * 7;
+FrameSize = (HeaderLength + PayloadLength) / log2(ModulationOrder);
+
+%% Message generation 1
+msgSet = zeros(NumberOfMessage * MessageLength, 1); 
+for msgCnt = 0 : NumberOfMessage - 1
+    msgSet(msgCnt * MessageLength + (1 : MessageLength)) = ...
+        sprintf('%s %03d\n', Message, msgCnt);
 end
+integerToBit = comm.IntegerToBit(7, 'OutputDataType', 'double');
+MessageBits = integerToBit(msgSet);
+
+% For BER calculation masks
+BerMask = zeros(NumberOfMessage * length(Message) * 7, 1);
+for i = 1 : NumberOfMessage
+    BerMask( (i-1) * length(Message) * 7 + ( 1: length(Message) * 7) ) = ...
+        (i-1) * MessageLength * 7 + (1: length(Message) * 7);
+end
+
+%% Message Info 2
+Message2 = 'Freqs: 1';
+MessageLength2 = length(Message2);
+PayloadLength2 =  MessageLength2 * 7;
+FrameSize2 = (HeaderLength + PayloadLength2) / log2(ModulationOrder);
+
+%% Message generation 2
+msg2 = zeros(MessageLength2,1);
+integerToBit2 = comm.IntegerToBit(7, 'OutputDataType', 'double');
+msg2(1:end) = sprintf('%s', Message2);
+MessageBits2 = integerToBit2(msg2);
+
+%% Pluto TX
+tx = sdrtx(..., 
+    'Pluto', ...
+    'RadioID', 'usb:0', ...
+    'CenterFrequency', 915e6, ...
+    'BasebandSampleRate', Fs, ...
+    'SamplesPerFrame', Interpolation * FrameSize2, ...
+    'Gain', 0);
+hTx = QPSKTransmitter(...
+    'UpsamplingFactor',             Interpolation, ...
+    'RolloffFactor',                RolloffFactor, ...
+    'RaisedCosineFilterSpan',       RaisedCosineFilterSpan, ...
+    'MessageBits',                  MessageBits2, ...
+    'MessageLength',                MessageLength2, ...
+    'NumberOfMessage',              1, ...
+    'ScramblerBase',                ScramblerBase, ...
+    'ScramblerPolynomial',          ScramblerPolynomial, ...
+    'ScramblerInitialConditions',   ScramblerInitialConditions);
+
+%% Pluto RX
+rx = sdrrx(..., 
+    'Pluto', ...
+    'CenterFrequency', channels(9), ...
+    'BasebandSampleRate', Fs, ...
+    'SamplesPerFrame', Interpolation*FrameSize, ...
+    'GainSource', 'Manual', ...
+    'Gain', 30, ...
+    'OutputDataType', 'double', ...
+    'RadioID', 'usb:0');
+hRx  = QPSKReceiver(...
+    'ModulationOrder', ModulationOrder, ...
+    'SampleRate', Fs, ...
+    'DecimationFactor', Decimation, ...
+    'FrameSize', FrameSize, ...
+    'HeaderLength', HeaderLength, ...
+    'NumberOfMessage', NumberOfMessage, ...
+    'PayloadLength', PayloadLength, ...
+    'DesiredPower', DesiredPower, ...
+    'AveragingLength', AveragingLength, ...
+    'MaxPowerGain', MaxPowerGain, ...
+    'RolloffFactor', RolloffFactor, ...
+    'RaisedCosineFilterSpan', RaisedCosineFilterSpan, ...
+    'InputSamplesPerSymbol', Interpolation, ...
+    'MaximumFrequencyOffset', MaximumFrequencyOffset, ...
+    'PostFilterOversampling', Interpolation/Decimation, ...
+    'PhaseRecoveryLoopBandwidth', PhaseRecoveryLoopBandwidth, ...
+    'PhaseRecoveryDampingFactor', PhaseRecoveryDampingFactor, ...
+    'TimingRecoveryDampingFactor', TimingRecoveryDampingFactor, ...
+    'TimingRecoveryLoopBandwidth', TimingRecoveryLoopBandwidth, ...
+    'TimingErrorDetectorGain', TimingErrorDetectorGain, ...
+    'PreambleDetectorThreshold', PreambleDetectorThreshold, ...
+    'DescramblerBase', ScramblerBase, ...
+    'DescramblerPolynomial', ScramblerPolynomial, ...
+    'DescramblerInitialConditions', ScramblerInitialConditions,...
+    'BerMask', BerMask, ...
+    'PrintOption',true);
+
+%% TX MESSAGE
+%tx.transmitRepeat(step(hTx));
+
+%% RX MESSAGE
+currentTime = 0;
+StopTime = 1000;
+BER = [];
+rcvdSignal = complex(zeros(Interpolation * FrameSize, 1));
+while currentTime <  StopTime
+    rcvdSignal = rx();
+    [~, ~, ~, BER, message] = hRx(rcvdSignal);
+    message
+%     fprintf('TEST: %s', char(message));
+%     disp("TEST: " + sprintf('%s\n', char(message)));
+    currentTime = currentTime + (rx.SamplesPerFrame / rx.BasebandSampleRate);
+end
+    
+release(hRx);
+release(hTx);
+release(rx);
+release(tx);
+
+
