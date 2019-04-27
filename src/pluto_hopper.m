@@ -150,11 +150,13 @@ IntegerToBit = comm.IntegerToBit(7, 'OutputDataType', 'double');
 %% Simulation Variables
 state = 0;
 StopTime = 100;
+StopSettleTime = 5;
 currentTime = 0;
+currentSettleTime = StopSettleTime;
 FrameTime = Interpolation * FrameSize / Fs;
 MeanFreqOff = 0;
 Cnt = 0;
-BERThreshold = 0.005;
+BERThreshold = 0.01;
 
 %% Main Simulation Loop
 while 1
@@ -207,7 +209,7 @@ while 1
             disp("BER: " + BER(1));
 %             disp(message);
 
-            if BER(1) > BERThreshold
+            if BER(1) > BERThreshold && currentSettleTime > StopSettleTime
                 state = 2;
             end
         end
@@ -220,8 +222,11 @@ while 1
 
         tx.CenterFrequency = lo;
         rx.CenterFrequency = lo;
-        release(ErrorRateCalc);
+        reset(ErrorRateCalc);
+        release(tx);
+        release(rx);
         state = 0;
+        currentSettleTime = 0;
         disp("Channel Switched: " + lo);
     else
         release(tx);
@@ -230,6 +235,7 @@ while 1
     end
     
     % Check if simulation is done
+    currentSettleTime = currentSettleTime + FrameTime;
     currentTime = currentTime + FrameTime;
     if currentTime > StopTime
         state = -1;
