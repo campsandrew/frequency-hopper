@@ -154,7 +154,7 @@ currentTime = 0;
 FrameTime = Interpolation * FrameSize / Fs;
 MeanFreqOff = 0;
 Cnt = 0;
-BERThreshold = 0.005;
+BERThreshold = .00001;
 
 %% Main Simulation Loop
 while 1
@@ -213,16 +213,17 @@ while 1
         end
     elseif state == 2
         % Method One Random Selection
-        lo = RandomChannel(channels);
+        %lo = RandomChannel(channels);
         
         % Method Two Analyze All Channels and Pick Best Channel
-%         lo = BestChannel(channels, rx);
+        lo = BestChannel(channels, tx, rx, Fs);
 
         tx.CenterFrequency = lo;
         rx.CenterFrequency = lo;
         release(ErrorRateCalc);
         state = 0;
         disp("Channel Switched: " + lo);
+        pause(2000);
     else
         release(tx);
         release(rx);
@@ -242,8 +243,29 @@ function lo = RandomChannel(channels)
 end
 
 %% Best Channel Selection Method
-function lo = BestChannel(channels, rx)
+function lo = BestChannel(channels, tx, rx, Fs)
+    % Do spectral analysis
+    scope = dsp.SpectrumAnalyzer('SampleRate', Fs, 'SpectralAverages', 100);
+    values = zeros(1,length(channels));
+    frames = 50;
     for i = 1:length(channels)
-       % Do some channel analysis
+        channel = channels(i);
+        %Make tx channel different?
+        tx.CenterFrequency = channel;
+        rx.CenterFrequency = channel;
+        %Make sure to transmit nothing to avoid noise
+        tx.transmitRepeat(zeros(tx.SamplesPerFrame,1));
+        %Grab some samples for analysis
+        for j = 1:frames
+            scope(rx());
+        end
+        data = getSpectrumData(scope);
+        %Center is at 768
+        spectrum = data{:,{'Spectrum'}}{1};
+        %frequency = data{:,{'FrequencyVector'}}{1};
+        %Store spectral value at channel
+        values(i) = spectrum(768);
     end
+    [val, idx] = min(values);
+    lo = channels(idx);
 end
