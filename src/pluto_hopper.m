@@ -7,9 +7,9 @@ Tsym = 1 / Rsym;           % Symbol time in sec
 Fs = Rsym * Interpolation; % Sample rate
 
 %% Generate Hopping Channels
-numChannels = 10;
-channelWidth = 1e6;
-initFrequency = 2.4e9;
+numChannels = 5;
+channelWidth = 20e6;
+initFrequency = 5.745e9;
 channels = zeros(numChannels, 1);
 for i = 1:numChannels
     channels(i) = initFrequency + (i-1) * channelWidth; 
@@ -65,13 +65,14 @@ for i = 1 : NumberOfMessage
 end
 
 %% Pluto TX
+lo = channels(4);
 tx = sdrtx(..., 
     'Pluto', ...
     'RadioID',                      'usb:0', ...
-    'CenterFrequency',              channels(1), ...
+    'CenterFrequency',              lo, ...
     'BasebandSampleRate',           Fs, ...
     'SamplesPerFrame',              Interpolation * FrameSize, ...
-    'Gain',                         0);
+    'Gain',                         -40);
 BitGenerator = QPSKBitsGenerator( ...
     'NumberOfMessage',              NumberOfMessage, ...
     'MessageLength',                MessageLength, ...
@@ -92,7 +93,7 @@ TxFilter = comm.RaisedCosineTransmitFilter( ...
 rx = sdrrx(..., 
     'Pluto', ...
     'RadioID',                      'usb:0', ...%'sn:104473dc5993001904000f0002c42965db', ...
-    'CenterFrequency',              channels(1), ...
+    'CenterFrequency',              lo, ...
     'BasebandSampleRate',           Fs, ...
     'SamplesPerFrame',              Interpolation * FrameSize, ...
     'GainSource',                   'Manual', ...
@@ -144,12 +145,15 @@ Descrambler = comm.Descrambler(...
 ErrorRateCalc = comm.ErrorRate( ...
     'Samples', 'Custom', ...
     'CustomSamples', BerMask);
+ErrorRateCalcAvg = comm.ErrorRate( ...
+    'Samples', 'Custom', ...
+    'CustomSamples', BerMask);
 BitToInteger = comm.BitToInteger(7, 'OutputDataType', 'int8');
 IntegerToBit = comm.IntegerToBit(7, 'OutputDataType', 'double');
 
 %% Simulation Variables
 state = 0;
-StopTime = 100;
+StopTime = 150;
 StopSettleTime = 5;
 currentTime = 0;
 currentSettleTime = StopSettleTime;
@@ -157,6 +161,11 @@ FrameTime = Interpolation * FrameSize / Fs;
 MeanFreqOff = 0;
 Cnt = 0;
 BERThreshold = 0.01;
+BERAvg = 0;
+counter = 0;
+frequencies = [];
+timeFreqChange = [];
+SlideFrameSize = 200;
 
 %% Main Simulation Loop
 while 1
@@ -169,6 +178,7 @@ while 1
         transmittedSignal = TxFilter(modulatedData);
         
         % Send Transmission
+        slidingAvg = zeros(1, SlideFrameSize);
         tx.transmitRepeat(transmittedSignal);
         state = 1;
     elseif state == 1
@@ -205,30 +215,43 @@ while 1
             % Get bit error rate and message
             charSet = BitToInteger(deScrData);
             message = sprintf('%s', char(charSet));
-            BER = ErrorRateCalc(MessageBits, deScrData);            
-            disp("BER: " + BER(1));
-%             disp(message);
-
-            if BER(1) > BERThreshold && currentSettleTime > StopSettleTime
-                state = 2;
+            
+            BER = ErrorRateCalc(MessageBits, deScrData);
+            if currentSettleTime > StopSettleTime
+                slidingAvg = [slidingAvg(2:end) BER(1)];
+                BERSlide = mean(slidingAvg);
+                
+                
+%                 avgBER = ErrorRateCalcAvg(MessageBits, deScrData);
+                
+                disp("BER Slide: " + BERSlide);
+                BERAvg = BERAvg + BER(1);
+                counter = counter + 1;
+%                 if BERSlide > BERThreshold
+%                     state = 2;
+%                 end
             end
+ 
+            disp("BER: " + BER(1));
+            reset(ErrorRateCalc);
         end
     elseif state == 2
         % Method One Random Selection
-        %lo = RandomChannel(channels);
+        lo = RandomChannel(channels);
         
         % Method Two Analyze All Channels and Pick Best Channel
-        lo = BestChannel(channels, tx, rx, Fs);
+%         lo = BestChannel(channels, tx, rx, Fs);
 
+        frequencies = [frequencies lo];
+        timeFreqChange = [timeFreqChange currentTime];
         tx.CenterFrequency = lo;
         rx.CenterFrequency = lo;
-        reset(ErrorRateCalc);
         release(tx);
         release(rx);
+%         reset(ErrorRateCalcAvg);
         state = 0;
         currentSettleTime = 0;
         disp("Channel Switched: " + lo);
-        pause(2000);
     else
         release(tx);
         release(rx);
@@ -243,6 +266,13 @@ while 1
     end
 end
 
+disp("Final BER Avg: " + BERAvg / counter);
+figure(1);
+scatter(timeFreqChange, frequencies);
+title('Frequency Changes over Time: Random Method 5GHz Band WiFi');
+xlabel('Time (s)');
+ylabel('Frequency (Hz)');
+
 %% Random Channel Selection Method
 function lo = RandomChannel(channels)
     lo = channels(randi(length(channels)));
@@ -253,14 +283,15 @@ function lo = BestChannel(channels, tx, rx, Fs)
     % Do spectral analysis
     scope = dsp.SpectrumAnalyzer('SampleRate', Fs, 'SpectralAverages', 100);
     values = zeros(1,length(channels));
+    
+    %Make sure to transmit nothing to avoid noise
+    tx.CenterFrequency = channels(1);
+    tx.transmitRepeat(zeros(tx.SamplesPerFrame, 1));
+    
     frames = 50;
     for i = 1:length(channels)
         channel = channels(i);
-        %Make tx channel different?
-        tx.CenterFrequency = channel;
         rx.CenterFrequency = channel;
-        %Make sure to transmit nothing to avoid noise
-        tx.transmitRepeat(zeros(tx.SamplesPerFrame,1));
         %Grab some samples for analysis
         for j = 1:frames
             scope(rx());
@@ -268,10 +299,11 @@ function lo = BestChannel(channels, tx, rx, Fs)
         data = getSpectrumData(scope);
         %Center is at 768
         spectrum = data{:,{'Spectrum'}}{1};
-        %frequency = data{:,{'FrequencyVector'}}{1};
         %Store spectral value at channel
         values(i) = spectrum(768);
+        release(scope);
     end
     [val, idx] = min(values);
+    disp("VALUES: " + values);
     lo = channels(idx);
 end
