@@ -9,7 +9,7 @@ FrameSize = 1024;
 FrameTime = Interpolation * FrameSize / Fs;
 
 %% Generate Hopping Channels
-numChannels = 10;
+numChannels = 5;
 channelWidth = 1e6;
 initFrequency = 2.4e9;
 channels = zeros(numChannels, 1);
@@ -21,18 +21,18 @@ end
 tx = sdrtx(..., 
     'Pluto', ...
     'RadioID',                      'usb:0', ...
-    'CenterFrequency',              RandomChannel(channels), ...
+    'CenterFrequency',              channels(4), ...
     'BasebandSampleRate',           Fs, ...
     'SamplesPerFrame',              Interpolation * FrameSize, ...
     'Gain',                         0);
 
 %% Simulation Variables
 state = 0;
-timePerChannel = 8;
-maxChanges = 20;
+timePerChannel = 10;
+maxChanges = 100;
 currentTime = 0;
 numChanges = 0;
-
+currentChannel = 1;
 %% Main Simulation Loop
 while 1
     
@@ -46,8 +46,9 @@ while 1
         end
     elseif state == 1
         currentTime = 0;
-        lo = RandomChannel(channels);
-        tx.CenterFrequency = lo;
+        currentChannel = currentChannel + 1;
+        lo = channels(mod(currentChannel,length(channels))+1);
+        %tx.CenterFrequency = lo;
         numChanges = numChanges + 1;
         state = 0;
         disp("Channel Switched: " + lo);
@@ -64,6 +65,6 @@ while 1
 end
 
 %% Random Channel Selection
-function lo = RandomChannel(channels)
+function lo= RandomChannel(channels)
     lo = channels(randi(length(channels)));
 end
